@@ -2,9 +2,9 @@ package collector
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 
-	"github.com/apex/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stmcginnis/gofish"
 )
@@ -25,7 +25,7 @@ type ManagerCollector struct {
 	redfishClient         *gofish.APIClient
 	metrics               map[string]Metric
 	collectorScrapeStatus *prometheus.GaugeVec
-	Log                   *log.Entry
+	Log                   *slog.Logger
 }
 
 func createManagerMetricMap() map[string]Metric {
@@ -42,13 +42,11 @@ func createManagerMetricMap() map[string]Metric {
 }
 
 // NewManagerCollector returns a collector that collecting memory statistics
-func NewManagerCollector(redfishClient *gofish.APIClient, logger *log.Entry) *ManagerCollector {
+func NewManagerCollector(redfishClient *gofish.APIClient, logger *slog.Logger) *ManagerCollector {
 	return &ManagerCollector{
 		redfishClient: redfishClient,
 		metrics:       managerMetrics,
-		Log: logger.WithFields(log.Fields{
-			"collector": "ManagerCollector",
-		}),
+		Log:           logger.With("collector", "ManagerCollector"),
 		collectorScrapeStatus: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
@@ -66,21 +64,20 @@ func (m *ManagerCollector) Describe(ch chan<- *prometheus.Desc) {
 		ch <- metric.desc
 	}
 	m.collectorScrapeStatus.Describe(ch)
-
 }
 
 // Collect implemented prometheus.Collector
 func (m *ManagerCollector) Collect(ch chan<- prometheus.Metric) {
 	collectorLogContext := m.Log
-	//get service
+	// get service
 	service := m.redfishClient.Service
 
 	// get a list of managers from service
 	if managers, err := service.Managers(); err != nil {
-		collectorLogContext.WithField("operation", "service.Managers()").WithError(err).Error("error getting managers from service")
+		collectorLogContext.With("operation", "service.Managers()").With("error", err).Error("error getting managers from service")
 	} else {
 		for _, manager := range managers {
-			managerLogContext := collectorLogContext.WithField("Manager", manager.ID)
+			managerLogContext := collectorLogContext.With("Manager", manager.ID)
 			managerLogContext.Info("collector scrape started")
 			// overall manager metrics
 			ManagerID := manager.ID
@@ -106,18 +103,19 @@ func (m *ManagerCollector) Collect(ch chan<- prometheus.Metric) {
 			// process log services
 			logServices, err := manager.LogServices()
 			if err != nil {
-				managerLogContext.WithField("operation", "manager.LogServices()").WithError(err).Error("error getting log services from manager")
+				managerLogContext.With("operation", "manager.LogServices()").With("error", err).Error("error getting log services from manager")
 			} else if logServices == nil {
-				managerLogContext.WithField("operation", "manager.LogServices()").Info("no log services found")
+				managerLogContext.With("operation", "manager.LogServices()").Info("no log services found")
 			} else {
 				wg := &sync.WaitGroup{}
 				wg.Add(len(logServices))
 
 				for _, logService := range logServices {
 					if err = parseLogService(ch, managerMetrics, ManagerSubmanager, ManagerID, logService, wg); err != nil {
-						managerLogContext.WithField("operation", "manager.LogServices()").WithError(err).Error("error getting log entries from log service")
+						managerLogContext.With("operation", "manager.LogServices()").With("error", err).Error("error getting log entries from log service")
 					}
 				}
+				wg.Wait()
 			}
 
 			managerLogContext.Info("collector scrape completed")
@@ -125,5 +123,4 @@ func (m *ManagerCollector) Collect(ch chan<- prometheus.Metric) {
 		m.collectorScrapeStatus.WithLabelValues("manager").Set(float64(1))
 
 	}
-
 }

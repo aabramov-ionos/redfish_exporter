@@ -2,11 +2,10 @@ package collector
 
 import (
 	"bytes"
-	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/apex/log"
 	"github.com/prometheus/client_golang/prometheus"
 	gofish "github.com/stmcginnis/gofish"
 	gofishcommon "github.com/stmcginnis/gofish/common"
@@ -40,19 +39,13 @@ type RedfishCollector struct {
 }
 
 // NewRedfishCollector return RedfishCollector
-func NewRedfishCollector(host string, username string, password string, logger *log.Entry) *RedfishCollector {
+func NewRedfishCollector(redfishClient *gofish.APIClient, logger *slog.Logger) *RedfishCollector {
 	var collectors map[string]prometheus.Collector
-	collectorLogCtx := logger
-	redfishClient, err := newRedfishClient(host, username, password)
-	if err != nil {
-		collectorLogCtx.WithError(err).Error("error creating redfish client")
-	} else {
-		chassisCollector := NewChassisCollector(redfishClient, collectorLogCtx)
-		systemCollector := NewSystemCollector(redfishClient, collectorLogCtx)
-		managerCollector := NewManagerCollector(redfishClient, collectorLogCtx)
+	chassisCollector := NewChassisCollector(redfishClient, logger)
+	systemCollector := NewSystemCollector(redfishClient, logger)
+	// managerCollector := NewManagerCollector(redfishClient, logger)
 
-		collectors = map[string]prometheus.Collector{"chassis": chassisCollector, "system": systemCollector, "manager": managerCollector}
-	}
+	collectors = map[string]prometheus.Collector{"chassis": chassisCollector, "system": systemCollector}
 
 	return &RedfishCollector{
 		redfishClient: redfishClient,
@@ -73,12 +66,10 @@ func (r *RedfishCollector) Describe(ch chan<- *prometheus.Desc) {
 	for _, collector := range r.collectors {
 		collector.Describe(ch)
 	}
-
 }
 
 // Collect implements prometheus.Collector.
 func (r *RedfishCollector) Collect(ch chan<- prometheus.Metric) {
-
 	scrapeTime := time.Now()
 	if r.redfishClient != nil {
 		defer r.redfishClient.Logout()
@@ -101,23 +92,6 @@ func (r *RedfishCollector) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(totalScrapeDurationDesc, prometheus.GaugeValue, time.Since(scrapeTime).Seconds())
 }
 
-func newRedfishClient(host string, username string, password string) (*gofish.APIClient, error) {
-
-	url := fmt.Sprintf("https://%s", host)
-
-	config := gofish.ClientConfig{
-		Endpoint: url,
-		Username: username,
-		Password: password,
-		Insecure: true,
-	}
-	redfishClient, err := gofish.Connect(config)
-	if err != nil {
-		return nil, err
-	}
-	return redfishClient, nil
-}
-
 func parseCommonStatusHealth(status gofishcommon.Health) (float64, bool) {
 	if bytes.Equal([]byte(status), []byte("OK")) {
 		return float64(1), true
@@ -130,7 +104,6 @@ func parseCommonStatusHealth(status gofishcommon.Health) (float64, bool) {
 }
 
 func parseCommonStatusState(status gofishcommon.State) (float64, bool) {
-
 	if bytes.Equal([]byte(status), []byte("")) {
 		return float64(0), false
 	} else if bytes.Equal([]byte(status), []byte("Enabled")) {
@@ -194,19 +167,18 @@ func parseLinkStatus(status redfish.LinkStatus) (float64, bool) {
 	return float64(0), false
 }
 
-func parsePortLinkStatus(status redfish.PortLinkStatus) (float64, bool) {
+func parsePortLinkStatus(status string) (float64, bool) {
 	if bytes.Equal([]byte(status), []byte("Up")) {
 		return float64(1), true
 	}
 	return float64(0), false
 }
-func boolToFloat64(data bool) float64 {
 
+func boolToFloat64(data bool) float64 {
 	if data {
 		return float64(1)
 	}
 	return float64(0)
-
 }
 
 func parsePhySecReArmMethod(method redfish.IntrusionSensorReArm) (float64, bool) {

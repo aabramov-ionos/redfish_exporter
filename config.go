@@ -10,7 +10,7 @@ import (
 
 type Config struct {
 	Hosts    map[string]HostConfig `yaml:"hosts"`
-	Groups   map[string]HostConfig `yaml:"groups"`
+	Modules  map[string]HostConfig `yaml:"modules"`
 	Loglevel string                `yaml:"loglevel"`
 }
 
@@ -25,7 +25,7 @@ type HostConfig struct {
 }
 
 func (sc *SafeConfig) ReloadConfig(configFile string) error {
-	var c = &Config{}
+	c := &Config{}
 
 	yamlFile, err := ioutil.ReadFile(configFile)
 	if err != nil {
@@ -60,18 +60,18 @@ func (sc *SafeConfig) HostConfigForTarget(target string) (*HostConfig, error) {
 	return &HostConfig{}, fmt.Errorf("no credentials found for target %s", target)
 }
 
-// HostConfigForGroup checks the configuration for a matching group config and returns the configured HostConfig for
-// that matched group.
-func (sc *SafeConfig) HostConfigForGroup(group string) (*HostConfig, error) {
+// HostConfigForModule checks the configuration for a matching module config and returns the configured HostConfig for
+// that matched module.
+func (sc *SafeConfig) HostConfigForModule(module string) (*HostConfig, error) {
 	sc.Lock()
 	defer sc.Unlock()
-	if hostConfig, ok := sc.C.Groups[group]; ok {
+	if hostConfig, ok := sc.C.Modules[module]; ok {
 		return &hostConfig, nil
 	}
-	return &HostConfig{}, fmt.Errorf("no credentials found for group %s", group)
+	return &HostConfig{}, fmt.Errorf("no credentials found for module %s", module)
 }
 
-func (sc *SafeConfig) AppLogLevel() (string) {
+func (sc *SafeConfig) AppLogLevel() string {
 	sc.Lock()
 	defer sc.Unlock()
 	logLevel := sc.C.Loglevel
